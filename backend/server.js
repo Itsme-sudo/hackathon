@@ -37,10 +37,16 @@ const memoryDb = {
 };
 
 // Python Multi-Agent Runner
-function runPythonPipeline(csvPath, subsidy = true, exportExcelPath = null) {
+function runPythonPipeline(csvPath, subsidy = true, exportExcelPath = null, dieselPrice = null, electricityTariff = null) {
     return new Promise((resolve, reject) => {
         const projectRoot = path.join(__dirname, "..");
         const args = ["-m", "analysis.app", csvPath, "--subsidy", subsidy ? "true" : "false"];
+        if (dieselPrice !== null && !isNaN(dieselPrice)) {
+            args.push("--diesel-price", String(dieselPrice));
+        }
+        if (electricityTariff !== null && !isNaN(electricityTariff)) {
+            args.push("--electricity-tariff", String(electricityTariff));
+        }
         if (exportExcelPath) {
             args.push("--export-excel", exportExcelPath);
         }
@@ -142,7 +148,7 @@ app.get("/api/uploads/:id/validation-report", async (req, res) => {
 // 3. Analysis Job Execution & Query Endpoints
 app.post("/api/analysis/run", async (req, res) => {
     try {
-        const { uploadId, subsidyActive, customAssumptions } = req.body;
+        const { uploadId, subsidyActive, dieselPrice, electricityTariff, customAssumptions } = req.body;
         let targetCsvPath;
         
         if (uploadId && memoryDb.uploads[uploadId]) {
@@ -153,7 +159,10 @@ app.post("/api/analysis/run", async (req, res) => {
         }
 
         const sub = subsidyActive !== false;
-        const result = await runPythonPipeline(targetCsvPath, sub);
+        const dPrice = dieselPrice !== undefined ? parseFloat(dieselPrice) : (customAssumptions?.diesel_price ? parseFloat(customAssumptions.diesel_price) : null);
+        const eTariff = electricityTariff !== undefined ? parseFloat(electricityTariff) : (customAssumptions?.electricity_tariff ? parseFloat(customAssumptions.electricity_tariff) : null);
+        
+        const result = await runPythonPipeline(targetCsvPath, sub, null, dPrice, eTariff);
 
         const analysisId = "JOB-" + Date.now();
         memoryDb.analysisJobs[analysisId] = result;
@@ -170,8 +179,10 @@ app.post("/api/analysis/run", async (req, res) => {
 app.get("/api/analysis/latest", async (req, res) => {
     try {
         const sub = req.query.subsidy !== "false";
+        const dPrice = req.query.diesel_price ? parseFloat(req.query.diesel_price) : null;
+        const eTariff = req.query.electricity_tariff ? parseFloat(req.query.electricity_tariff) : null;
         const defaultPath = path.join(__dirname, "..", "data", "fleet_routes.csv");
-        const result = await runPythonPipeline(defaultPath, sub);
+        const result = await runPythonPipeline(defaultPath, sub, null, dPrice, eTariff);
         res.json(result);
     } catch (e) {
         res.status(500).json({ error: e.message });

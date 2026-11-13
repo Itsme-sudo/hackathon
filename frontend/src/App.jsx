@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend, LineChart, Line, AreaChart, Area
@@ -6,7 +6,8 @@ import {
 import { 
   Truck, BatteryCharging, DollarSign, Leaf, Settings, Upload, 
   MessageSquare, Zap, ShieldCheck, Download, RefreshCw, CheckCircle2, 
-  AlertTriangle, XCircle, Search, Filter, ChevronRight, X, ArrowUpRight
+  AlertTriangle, XCircle, Search, Filter, ChevronRight, X, ArrowUpRight,
+  Sliders, RotateCcw, Building2
 } from 'lucide-react';
 import './App.css';
 
@@ -16,11 +17,15 @@ export default function App() {
   const [currentView, setCurrentView] = useState('FLEET');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [subsidyActive, setSubsidyActive] = useState(true);
+  const [activeFileName, setActiveFileName] = useState("fleet_routes.csv (120 Vehicles, 3 Depots)");
   
-  // Interactive sliders for Finance sensitivity
+  // Dynamic Real-Time Sliders for Finance sensitivity
+  const [subsidyActive, setSubsidyActive] = useState(true);
   const [dieselPriceSlider, setDieselPriceSlider] = useState(94.5);
   const [tariffSlider, setTariffSlider] = useState(7.5);
+  
+  // Depot Filter for Depot Manager View
+  const [selectedDepot, setSelectedDepot] = useState('ALL');
   
   // AI Advisor drawer state
   const [advisorOpen, setAdvisorOpen] = useState(false);
@@ -34,16 +39,16 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
 
-  // Filters
+  // Table Filters & Modal
   const [searchQuery, setSearchQuery] = useState('');
   const [verdictFilter, setVerdictFilter] = useState('ALL');
   const [selectedVehicle, setSelectedVehicle] = useState(null);
 
   // Load initial data
-  const fetchAnalysis = async (subsidy = subsidyActive) => {
+  const fetchAnalysis = async (sub = subsidyActive, dPrice = dieselPriceSlider, eTariff = tariffSlider) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/analysis/latest?subsidy=${subsidy}`);
+      const res = await fetch(`${API_BASE}/analysis/latest?subsidy=${sub}&diesel_price=${dPrice}&electricity_tariff=${eTariff}`);
       if (!res.ok) throw new Error("Backend query failed");
       const json = await res.json();
       setData(json);
@@ -55,13 +60,19 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchAnalysis(subsidyActive);
+    fetchAnalysis(subsidyActive, dieselPriceSlider, tariffSlider);
   }, []);
 
+  // Handle subsidy toggle with real-time reactive update
   const handleSubsidyToggle = () => {
     const next = !subsidyActive;
     setSubsidyActive(next);
-    fetchAnalysis(next);
+  };
+
+  const resetFinanceSliders = () => {
+    setDieselPriceSlider(94.5);
+    setTariffSlider(7.5);
+    setSubsidyActive(true);
   };
 
   const handleFileUpload = async (e) => {
@@ -73,18 +84,37 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/uploads/csv`, { method: "POST", body: formData });
       const upl = await res.json();
-      // Run analysis
+      
       const runRes = await fetch(`${API_BASE}/analysis/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uploadId: upl.uploadId, subsidyActive })
+        body: JSON.stringify({ 
+          uploadId: upl.uploadId, 
+          subsidyActive,
+          dieselPrice: dieselPriceSlider,
+          electricityTariff: tariffSlider 
+        })
       });
       const runJson = await runRes.json();
       setData(runJson);
-      alert(`CSV "${file.name}" uploaded & analyzed successfully!`);
+      setActiveFileName(file.name);
+      alert(`CSV "${file.name}" uploaded & analyzed dynamically!`);
       setCurrentView('FLEET');
     } catch (err) {
       alert("Upload failed: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadPresetFleet = async (presetName) => {
+    setLoading(true);
+    try {
+      await fetchAnalysis(subsidyActive, dieselPriceSlider, tariffSlider);
+      setActiveFileName(presetName);
+      alert(`Loaded ${presetName} successfully!`);
+    } catch (e) {
+      alert("Failed to load preset");
     } finally {
       setLoading(false);
     }
@@ -122,23 +152,107 @@ export default function App() {
     }
   };
 
-  if (!data && loading) {
-    return (
-      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#0B0F19', color: 'white' }}>
-        <RefreshCw className="animate-spin" size={40} style={{ color: '#2563EB', marginRight: 12 }} />
-        <h2>Initializing VidyutFleet Multi-Agent Engine...</h2>
-      </div>
-    );
-  }
-
+  // Base payload extracted
   const { summary, charging_plan, financials, sustainability, records, priority_transition_queue } = data || {};
 
-  // Cost chart data
-  const costBenchmarkData = [
-    { powertrain: 'Electric (EV)', cost: 1.28, fill: '#10B981' },
-    { powertrain: 'CNG', cost: 2.35, fill: '#3B82F6' },
-    { powertrain: 'Diesel', cost: 2.69, fill: '#F59E0B' },
-    { powertrain: 'Petrol', cost: 3.21, fill: '#EF4444' }
+  // ====================================================================
+  // DYNAMIC REACTIVE COMPUTATIONS: Instantly recalculates on slider changes
+  // ====================================================================
+  const reactiveFinancials = useMemo(() => {
+    const electrifiableVehicles = (records || []).filter(
+      r => r.verdict === 'Ready Now' || r.verdict === 'Ready with Depot Charger'
+    );
+    const electrifiableCount = electrifiableVehicles.length;
+    const totalDailyKm = electrifiableVehicles.reduce((acc, v) => acc + (parseFloat(v.daily_distance_km) || 0), 0);
+    const annualKm = totalDailyKm * 300;
+
+    // Diesel running cost scaled with diesel price slider (Base 94.5 INR/L -> 2.69 INR/km)
+    const dieselCostPerKm = Math.round((2.69 * (dieselPriceSlider / 94.5)) * 100) / 100;
+    // EV running cost scaled with tariff slider (Base 7.5 INR/kWh -> 1.28 INR/km)
+    const evCostPerKm = Math.round((1.28 * (tariffSlider / 7.5)) * 100) / 100;
+
+    const annualDieselFuelSpend = Math.round(annualKm * dieselCostPerKm);
+    const annualEvFuelSpend = Math.round(annualKm * evCostPerKm);
+    const annualMaintenanceSavings = electrifiableCount * 17000;
+    const annualNetSavings = Math.round((annualDieselFuelSpend - annualEvFuelSpend) + annualMaintenanceSavings);
+
+    const recBays = charging_plan?.recommended_chargers || 27;
+    const subsidyPerVeh = subsidyActive ? 50000 : 0;
+    const capexDeltaPerVeh = 90000 - subsidyPerVeh;
+    const chargerCapex = recBays * 45000;
+    const batteryReserve = Math.round(capexDeltaPerVeh * 0.10 * electrifiableCount);
+    const totalCapex = Math.max(1000, (capexDeltaPerVeh * electrifiableCount) + chargerCapex + batteryReserve);
+
+    const paybackYears = annualNetSavings > 0 ? totalCapex / annualNetSavings : 0;
+    const paybackMonths = Math.round(paybackYears * 12.0 * 10) / 10;
+    const roiPercent = annualNetSavings > 0 ? Math.round((annualNetSavings / totalCapex) * 1000) / 10 : 0;
+
+    const fiveYearTcoBenefit = Math.round((annualNetSavings * 5) - totalCapex);
+    const tenYearTcoBenefit = Math.round((annualNetSavings * 10) - totalCapex - (electrifiableCount * 75000));
+
+    return {
+      electrifiableCount,
+      annualKm,
+      dieselCostPerKm,
+      evCostPerKm,
+      annualDieselFuelSpend,
+      annualEvFuelSpend,
+      annualNetSavings,
+      totalCapex,
+      paybackMonths,
+      paybackYears: Math.round(paybackYears * 100) / 100,
+      roiPercent,
+      fiveYearTcoBenefit,
+      tenYearTcoBenefit
+    };
+  }, [records, dieselPriceSlider, tariffSlider, subsidyActive, charging_plan]);
+
+  // ====================================================================
+  // DEPOT DYNAMIC FILTER: Recalculates chargers and timeline by depot
+  // ====================================================================
+  const reactiveDepotMetrics = useMemo(() => {
+    const allRecords = records || [];
+    const depotFilteredVehicles = selectedDepot === 'ALL'
+      ? allRecords
+      : allRecords.filter(r => r.depot_id === selectedDepot);
+
+    const depotEligible = depotFilteredVehicles.filter(
+      r => r.verdict === 'Ready Now' || r.verdict === 'Ready with Depot Charger'
+    );
+
+    const depotTotalKwh = Math.round(
+      depotEligible.reduce((acc, v) => acc + (v.charging_needs?.kwh_required || 0), 0) * 10
+    ) / 10;
+
+    // Sizing for this depot
+    const minBays = Math.max(1, Math.ceil(depotTotalKwh / (3.3 * 9.5 * 0.85)));
+    const recBays = Math.ceil(minBays * 1.25);
+    const peakKw = Math.min(depotEligible.length, recBays) * 3.3;
+
+    // Filtered Gantt schedule
+    const schedule = (charging_plan?.gantt_schedule || []).filter(s => {
+      if (selectedDepot === 'ALL') return true;
+      const v = allRecords.find(r => r.vehicle_id === s.vehicle_id);
+      return v ? v.depot_id === selectedDepot : true;
+    });
+
+    return {
+      depotVehiclesCount: depotFilteredVehicles.length,
+      depotEligibleCount: depotEligible.length,
+      depotTotalKwh,
+      minBays,
+      recBays,
+      peakKw: Math.round(peakKw * 10) / 10,
+      schedule
+    };
+  }, [records, charging_plan, selectedDepot]);
+
+  // Dynamic bar chart data reacting to sliders
+  const dynamicCostChartData = [
+    { powertrain: 'Electric (EV)', cost: reactiveFinancials.evCostPerKm, fill: '#10B981', note: `Tariff: ₹${tariffSlider}/kWh` },
+    { powertrain: 'CNG', cost: 2.35, fill: '#3B82F6', note: '₹85/kg' },
+    { powertrain: 'Diesel', cost: reactiveFinancials.dieselCostPerKm, fill: '#F59E0B', note: `Price: ₹${dieselPriceSlider}/L` },
+    { powertrain: 'Petrol', cost: 3.21, fill: '#EF4444', note: '₹105/L' }
   ];
 
   // Pie chart data
@@ -159,6 +273,15 @@ export default function App() {
       v.depot_id.toLowerCase().includes(searchQuery.toLowerCase());
     return matchVerdict && matchQuery;
   });
+
+  if (!data && loading) {
+    return (
+      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#0B0F19', color: 'white' }}>
+        <RefreshCw className="animate-spin" size={40} style={{ color: '#2563EB', marginRight: 12 }} />
+        <h2>Initializing VidyutFleet Multi-Agent Engine...</h2>
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -219,8 +342,9 @@ export default function App() {
         </nav>
 
         <div className="sidebar-footer">
-          <p>Team Vidyut · GNDEC</p>
-          <p style={{ marginTop: 4, color: '#475569' }}>CEEW 2024 & CEA v16 Engine</p>
+          <p style={{ fontWeight: 700, color: '#E2E8F0' }}>Active Dataset:</p>
+          <p style={{ marginTop: 2, color: '#38BDF8', fontSize: 11, wordBreak: 'break-all' }}>{activeFileName}</p>
+          <p style={{ marginTop: 8, color: '#64748B' }}>Team Vidyut · GNDEC Ludhiana</p>
         </div>
       </aside>
 
@@ -230,16 +354,16 @@ export default function App() {
         <header className="app-navbar">
           <div className="navbar-status">
             <span className="status-badge">
-              <ShieldCheck size={14} /> LIVE ANALYTICAL ENGINE
+              <ShieldCheck size={14} /> LIVE REACTIVE ENGINE
             </span>
             <span style={{ fontSize: 13, color: '#94A3B8' }}>
-              Depots: <strong>Ludhiana, Delhi NCR, Chandigarh</strong>
+              Active Fleet: <strong>{summary?.total_vehicles || 0} Vehicles across 3 Depots</strong>
             </span>
           </div>
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <a 
-              href={`${API_BASE}/reports/excel`}
+              href={`${API_BASE}/reports/excel?subsidy=${subsidyActive}`}
               download 
               className="btn-secondary"
               style={{ textDecoration: 'none', padding: '6px 14px', fontSize: 12 }}
@@ -259,30 +383,36 @@ export default function App() {
 
         {/* Dynamic Content Views */}
         <main className="content-body">
-          {/* Top Shared KPI Row */}
+          {/* Top Shared KPI Row: Values React Immediately to Data & Sliders */}
           <div className="kpi-row">
             <div className="kpi-box">
-              <div className="kpi-label">Total Monitored Fleet</div>
+              <div className="kpi-label">Monitored Fleet</div>
               <div className="kpi-num">{summary?.total_vehicles || 0}</div>
               <div className="kpi-sub">Commercial 3W & LCVs</div>
             </div>
 
             <div className="kpi-box green">
-              <div className="kpi-label">Electrification Potential</div>
+              <div className="kpi-label">Electrification Rate</div>
               <div className="kpi-num">{summary?.electrification_rate_pct || 0}%</div>
-              <div className="kpi-sub">{(summary?.ready_now_count || 0) + (summary?.ready_with_charger_count || 0)} Viable Routes</div>
+              <div className="kpi-sub">{(summary?.ready_now_count || 0) + (summary?.ready_with_charger_count || 0)} of {summary?.total_vehicles || 0} Viable</div>
             </div>
 
             <div className="kpi-box amber">
-              <div className="kpi-label">Sized Shared Chargers</div>
+              <div className="kpi-label">Depot Chargers Sized</div>
               <div className="kpi-num">{charging_plan?.recommended_chargers || 0} Bays</div>
-              <div className="kpi-sub">EDF Conflict-Free Sizing</div>
+              <div className="kpi-sub">EDF Overlap Lower Bound</div>
             </div>
 
             <div className="kpi-box green">
-              <div className="kpi-label">Annual Net Savings</div>
-              <div className="kpi-num">₹{((financials?.annual_net_savings_inr || 0) / 100000).toFixed(1)}L</div>
-              <div className="kpi-sub">vs CEEW Diesel Baseline</div>
+              <div className="kpi-label">Annual Net Savings (Dynamic)</div>
+              <div className="kpi-num">₹{(reactiveFinancials.annualNetSavings / 100000).toFixed(1)}L</div>
+              <div className="kpi-sub">Reactive at ₹{dieselPriceSlider}/L Diesel</div>
+            </div>
+
+            <div className="kpi-box amber">
+              <div className="kpi-label">Payback Period (Dynamic)</div>
+              <div className="kpi-num">{reactiveFinancials.paybackMonths} Mo</div>
+              <div className="kpi-sub">{subsidyActive ? "PM E-DRIVE Active" : "Unsubsidized Baseline"}</div>
             </div>
 
             <div className="kpi-box">
@@ -302,21 +432,22 @@ export default function App() {
                 <div className="panel-title-bar">
                   <div className="panel-heading">
                     <Truck size={18} color="#2563EB" />
-                    <span>Top-10 Transition Priority Queue (Recommended First Batch)</span>
+                    <span>Top Transition Priority Queue (Recommended First Rollout Batch)</span>
                   </div>
-                  <span style={{ fontSize: 12, color: '#94A3B8' }}>Ordered by Highest Feasibility Score</span>
+                  <span style={{ fontSize: 12, color: '#94A3B8' }}>Sorted by Multi-Factor Feasibility Score</span>
                 </div>
 
                 <div className="table-responsive">
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Priority</th>
+                        <th>Rollout Priority</th>
                         <th>Vehicle Code</th>
                         <th>Route Name</th>
+                        <th>Depot</th>
                         <th>Daily Distance</th>
                         <th>Feasibility Score</th>
-                        <th>Verdict Badge</th>
+                        <th>Rollout Verdict</th>
                         <th>Recharge Duration</th>
                         <th>Action</th>
                       </tr>
@@ -327,6 +458,7 @@ export default function App() {
                           <td style={{ fontWeight: 800, color: '#60A5FA' }}>#{i + 1}</td>
                           <td style={{ fontWeight: 700 }}>{v.vehicle_id}</td>
                           <td>{v.route_name}</td>
+                          <td style={{ color: '#94A3B8' }}>{v.depot_id}</td>
                           <td>{v.daily_distance_km} km</td>
                           <td style={{ fontWeight: 800, color: '#10B981' }}>{v.score} / 100</td>
                           <td>
@@ -390,9 +522,9 @@ export default function App() {
                       }}
                     >
                       <option value="ALL">All Verdicts</option>
-                      <option value="READY_NOW">Ready Now</option>
-                      <option value="CHARGER">Ready w/ Charger</option>
-                      <option value="NOT_YET">Not Yet</option>
+                      <option value="READY_NOW">Ready Now ({summary?.ready_now_count || 0})</option>
+                      <option value="CHARGER">Ready w/ Charger ({summary?.ready_with_charger_count || 0})</option>
+                      <option value="NOT_YET">Not Yet ({summary?.not_yet_count || 0})</option>
                     </select>
                   </div>
                 </div>
@@ -412,7 +544,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredVehicles.slice(0, 20).map((v) => (
+                      {filteredVehicles.slice(0, 25).map((v) => (
                         <tr key={v.vehicle_id}>
                           <td style={{ fontWeight: 700 }}>{v.vehicle_id}</td>
                           <td>{v.route_name}</td>
@@ -443,45 +575,75 @@ export default function App() {
           )}
 
           {/* ==================================================== */}
-          {/* VIEW 2: DEPOT MANAGER VIEW                          */}
+          {/* VIEW 2: DEPOT MANAGER VIEW (Dynamic Multi-Depot)    */}
           {/* ==================================================== */}
           {currentView === 'DEPOT' && (
             <div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 24 }}>
+              {/* Depot Selector Filter Bar */}
+              <div className="glass-panel" style={{ padding: '14px 20px', marginBottom: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Building2 size={20} color="#38BDF8" />
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>Select Depot Infrastructure Hub:</span>
+                  </div>
+
+                  <select 
+                    value={selectedDepot}
+                    onChange={(e) => setSelectedDepot(e.target.value)}
+                    style={{
+                      background: '#1E293B',
+                      border: '1px solid var(--border-accent)',
+                      color: '#F8FAFC',
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      fontWeight: 600
+                    }}
+                  >
+                    <option value="ALL">All Depots (Ludhiana + Delhi NCR + Chandigarh Hubs)</option>
+                    <option value="D01">D01 — Ludhiana Main Depot (Punjab)</option>
+                    <option value="D02">D02 — Delhi NCR Gateway Hub (Gurugram)</option>
+                    <option value="D03">D03 — Chandigarh Logistics Hub (Mohali)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Dynamic Depot KPIs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginBottom: 24 }}>
                 <div className="kpi-box">
                   <div className="kpi-label">Minimum Chargers Required</div>
-                  <div className="kpi-num">{charging_plan?.min_chargers_required || 0}</div>
-                  <div className="kpi-sub">Analytical Dwell Overlap Lower Bound</div>
+                  <div className="kpi-num">{reactiveDepotMetrics.minBays}</div>
+                  <div className="kpi-sub">Dwell Overlap Lower Bound ({selectedDepot})</div>
                 </div>
 
                 <div className="kpi-box green">
                   <div className="kpi-label">Recommended Sized Bays</div>
-                  <div className="kpi-num">{charging_plan?.recommended_chargers || 0} Bays</div>
+                  <div className="kpi-num">{reactiveDepotMetrics.recBays} Bays</div>
                   <div className="kpi-sub">Includes 25% Operational Reserve</div>
                 </div>
 
                 <div className="kpi-box amber">
                   <div className="kpi-label">Peak Grid Load Demand</div>
-                  <div className="kpi-num">{charging_plan?.peak_power_kw || 0} kW</div>
-                  <div className="kpi-sub">Simultaneous 3.3 kW Sessions</div>
+                  <div className="kpi-num">{reactiveDepotMetrics.peakKw} kW</div>
+                  <div className="kpi-sub">Simultaneous 3.3 kW Charging Bays</div>
                 </div>
 
                 <div className="kpi-box">
-                  <div className="kpi-label">Charger Bay Utilization</div>
-                  <div className="kpi-num">{charging_plan?.charger_utilization_pct || 0}%</div>
-                  <div className="kpi-sub">Across 12-Hour Overnight Dwell</div>
+                  <div className="kpi-label">Depot Nightly Energy Demand</div>
+                  <div className="kpi-num">{reactiveDepotMetrics.depotTotalKwh} kWh</div>
+                  <div className="kpi-sub">{reactiveDepotMetrics.depotEligibleCount} Returning Electric Vehicles</div>
                 </div>
               </div>
 
-              {/* Gantt Schedule Table */}
+              {/* Gantt Schedule Table Filtered by Depot */}
               <div className="glass-panel">
                 <div className="panel-title-bar">
                   <div className="panel-heading">
                     <BatteryCharging size={18} color="#F59E0B" />
-                    <span>Earliest-Deadline-First (EDF) Depot Bay Staggered Schedule</span>
+                    <span>Earliest-Deadline-First (EDF) Bay Staggered Schedule — {selectedDepot === 'ALL' ? 'All Depots' : selectedDepot} ({reactiveDepotMetrics.schedule.length} Sessions)</span>
                   </div>
                   <span style={{ fontSize: 12, color: '#10B981' }}>
-                    Zero Transformer Overloading · Next-Day Departure Priority
+                    Zero Transformer Overloading · Sorted by Earliest Departure
                   </span>
                 </div>
 
@@ -502,7 +664,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(charging_plan?.gantt_schedule || []).slice(0, 15).map((s, idx) => (
+                      {reactiveDepotMetrics.schedule.slice(0, 15).map((s, idx) => (
                         <tr key={idx}>
                           <td style={{ fontWeight: 800, color: '#38BDF8' }}>{s.bay_id}</td>
                           <td style={{ fontWeight: 700 }}>{s.vehicle_id}</td>
@@ -528,7 +690,7 @@ export default function App() {
           )}
 
           {/* ==================================================== */}
-          {/* VIEW 3: FINANCE TEAM VIEW                           */}
+          {/* VIEW 3: FINANCE TEAM VIEW (Real-Time Reactive Math)  */}
           {/* ==================================================== */}
           {currentView === 'FINANCE' && (
             <div>
@@ -536,41 +698,53 @@ export default function App() {
               <div className="glass-panel" style={{ background: 'rgba(30, 41, 59, 0.4)' }}>
                 <div className="panel-title-bar">
                   <div className="panel-heading">
-                    <DollarSign size={18} color="#10B981" />
-                    <span>Interactive Financial Sensitivity & Policy Simulator</span>
+                    <Sliders size={18} color="#10B981" />
+                    <span>Real-Time Financial Simulator (Move Sliders to Instantly Recalculate)</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>PM E-DRIVE Subsidy:</span>
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button 
+                      onClick={resetFinanceSliders}
+                      className="btn-secondary"
+                      style={{ padding: '4px 10px', fontSize: 11 }}
+                      title="Reset parameters to CEEW & National benchmarks"
+                    >
+                      <RotateCcw size={12} /> Reset to Defaults
+                    </button>
+
                     <button 
                       onClick={handleSubsidyToggle}
                       className="btn-primary"
-                      style={{ padding: '4px 12px', fontSize: 11, background: subsidyActive ? '#10B981' : '#64748B' }}
+                      style={{ padding: '6px 14px', fontSize: 12, background: subsidyActive ? '#10B981' : '#64748B' }}
                     >
-                      {subsidyActive ? "₹50,000/veh ACTIVE" : "UNSUBSIDIZED OFF"}
+                      {subsidyActive ? "PM E-DRIVE Subsidy (₹50K) ON" : "Subsidy OFF (Unsubsidized)"}
                     </button>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
                   <div className="slider-group">
                     <div className="slider-label">
                       <span>Diesel Fuel Price (INR / Liter)</span>
-                      <strong>₹{dieselPriceSlider} / L</strong>
+                      <strong style={{ color: '#F59E0B', fontSize: 14 }}>₹{dieselPriceSlider.toFixed(1)} / L</strong>
                     </div>
                     <input 
                       type="range" 
                       min="80" 
-                      max="115" 
+                      max="120" 
                       step="0.5" 
                       value={dieselPriceSlider} 
                       onChange={(e) => setDieselPriceSlider(parseFloat(e.target.value))} 
                     />
+                    <span style={{ fontSize: 11, color: '#64748B' }}>
+                      Calculated Diesel Cost: <strong>₹{reactiveFinancials.dieselCostPerKm}/km</strong>
+                    </span>
                   </div>
 
                   <div className="slider-group">
                     <div className="slider-label">
-                      <span>Electricity Commercial Tariff (INR / kWh)</span>
-                      <strong>₹{tariffSlider} / kWh</strong>
+                      <span>Commercial Electricity Tariff (INR / kWh)</span>
+                      <strong style={{ color: '#10B981', fontSize: 14 }}>₹{tariffSlider.toFixed(1)} / kWh</strong>
                     </div>
                     <input 
                       type="range" 
@@ -580,6 +754,9 @@ export default function App() {
                       value={tariffSlider} 
                       onChange={(e) => setTariffSlider(parseFloat(e.target.value))} 
                     />
+                    <span style={{ fontSize: 11, color: '#64748B' }}>
+                      Calculated EV Running Cost: <strong>₹{reactiveFinancials.evCostPerKm}/km</strong>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -588,16 +765,19 @@ export default function App() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
                 <div className="glass-panel">
                   <div className="panel-title-bar">
-                    <span className="panel-heading">Operating Cost per km (CEEW 2024 Benchmark)</span>
+                    <span className="panel-heading">Reactive Running Cost per km (CEEW 2024 Benchmark)</span>
                   </div>
                   <div style={{ height: 260 }}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={costBenchmarkData}>
+                      <BarChart data={dynamicCostChartData}>
                         <XAxis dataKey="powertrain" stroke="#94A3B8" />
                         <YAxis stroke="#94A3B8" unit=" ₹" />
-                        <Tooltip contentStyle={{ background: '#1E293B', border: '1px solid #334155', borderRadius: 8 }} />
+                        <Tooltip 
+                          contentStyle={{ background: '#1E293B', border: '1px solid #334155', borderRadius: 8 }}
+                          formatter={(val) => [`₹${val} / km`, 'Running Cost']}
+                        />
                         <Bar dataKey="cost" radius={[6, 6, 0, 0]}>
-                          {costBenchmarkData.map((e, i) => (
+                          {dynamicCostChartData.map((e, i) => (
                             <Cell key={i} fill={e.fill} />
                           ))}
                         </Bar>
@@ -605,33 +785,40 @@ export default function App() {
                     </ResponsiveContainer>
                   </div>
                   <p style={{ fontSize: 11, color: '#94A3B8', marginTop: 8, textAlign: 'center' }}>
-                    EV running cost (₹1.28/km) offers 52.4% operating savings over diesel (₹2.69/km).
+                    EV at ₹{reactiveFinancials.evCostPerKm}/km vs Diesel at ₹{reactiveFinancials.dieselCostPerKm}/km. Net difference: ₹{(reactiveFinancials.dieselCostPerKm - reactiveFinancials.evCostPerKm).toFixed(2)}/km!
                   </p>
                 </div>
 
                 <div className="glass-panel">
                   <div className="panel-title-bar">
-                    <span className="panel-heading">TCO Projections & Payback Metrics</span>
+                    <span className="panel-heading">Dynamic Financial Savings & Payback</span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
                       <span style={{ color: '#94A3B8' }}>Net Annual Operating Fuel Savings:</span>
-                      <strong style={{ color: '#10B981', fontSize: 16 }}>₹{(financials?.annual_net_savings_inr || 0).toLocaleString()}</strong>
+                      <strong style={{ color: '#10B981', fontSize: 16 }}>₹{reactiveFinancials.annualNetSavings.toLocaleString()}</strong>
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
                       <span style={{ color: '#94A3B8' }}>Total Fleet CAPEX Investment Delta:</span>
-                      <strong style={{ color: '#38BDF8', fontSize: 16 }}>₹{(financials?.total_capex_investment_inr || 0).toLocaleString()}</strong>
+                      <strong style={{ color: '#38BDF8', fontSize: 16 }}>₹{reactiveFinancials.totalCapex.toLocaleString()}</strong>
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
                       <span style={{ color: '#94A3B8' }}>Estimated Payback Period:</span>
-                      <strong style={{ color: '#F59E0B', fontSize: 16 }}>{financials?.payback_period?.months || 0} Months ({financials?.payback_period?.years || 0} Yrs)</strong>
+                      <strong style={{ color: '#F59E0B', fontSize: 16 }}>
+                        {reactiveFinancials.paybackMonths} Months ({reactiveFinancials.paybackYears} Yrs)
+                      </strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                      <span style={{ color: '#94A3B8' }}>Annual Simple ROI:</span>
+                      <strong style={{ color: '#34D399', fontSize: 16 }}>{reactiveFinancials.roiPercent}%</strong>
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
                       <span style={{ color: '#94A3B8' }}>5-Year Cumulative Net TCO Benefit:</span>
-                      <strong style={{ color: '#10B981', fontSize: 16 }}>₹{((financials?.tco_projection?.five_year_net_savings || 0) / 100000).toFixed(1)} Lakhs</strong>
+                      <strong style={{ color: '#10B981', fontSize: 16 }}>₹{(reactiveFinancials.fiveYearTcoBenefit / 100000).toFixed(1)} Lakhs</strong>
                     </div>
                   </div>
                 </div>
@@ -692,7 +879,7 @@ export default function App() {
           {/* VIEW 5: CSV UPLOAD & INGESTION VIEW                  */}
           {/* ==================================================== */}
           {currentView === 'UPLOAD' && (
-            <div className="glass-panel" style={{ maxWidth: 800, margin: '0 auto' }}>
+            <div className="glass-panel" style={{ maxWidth: 840, margin: '0 auto' }}>
               <div className="panel-title-bar">
                 <div className="panel-heading">
                   <Upload size={18} color="#2563EB" />
@@ -700,11 +887,23 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Preset Loaders */}
+              <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+                <button 
+                  onClick={() => loadPresetFleet("Master 120-Vehicle Fleet (data/fleet_routes.csv)")}
+                  className="btn-secondary"
+                  style={{ fontSize: 12 }}
+                >
+                  <RefreshCw size={14} /> Reload Master 120-Vehicle Fleet (Punjab & Haryana)
+                </button>
+              </div>
+
+              {/* Drag & Drop Area */}
               <div style={{ textAlign: 'center', padding: '40px 20px', border: '2px dashed var(--border-light)', borderRadius: 12 }}>
                 <Upload size={48} style={{ color: '#2563EB', margin: '0 auto 16px' }} />
                 <h3>Drag & Drop Your Fleet Dispatch CSV</h3>
                 <p style={{ color: '#94A3B8', fontSize: 13, marginTop: 6, marginBottom: 20 }}>
-                  Supports full 47-column master format or 6-column simplified format.
+                  Upload a new CSV to immediately re-calculate readiness scores, EDF charger bays, and financial savings.
                 </p>
 
                 <label className="btn-primary" style={{ display: 'inline-block', cursor: 'pointer' }}>

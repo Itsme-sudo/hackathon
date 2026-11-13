@@ -116,11 +116,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VidyutFleet Multi-Agent Engine")
     parser.add_argument("csv_path", nargs="?", default=os.path.join(os.path.dirname(__file__), "..", "data", "fleet_routes.csv"))
     parser.add_argument("--subsidy", type=str, default="true")
+    parser.add_argument("--diesel-price", type=float, default=None)
+    parser.add_argument("--electricity-tariff", type=float, default=None)
     parser.add_argument("--export-excel", type=str, default=None)
     args = parser.parse_args()
 
     sub_flag = args.subsidy.lower() in ["true", "1", "yes", "on"]
-    results = execute_pipeline(args.csv_path, subsidy_active=sub_flag)
+    assumptions = {}
+    if args.diesel_price is not None:
+        # Scale diesel operating cost proportionally to price (base 94.5 -> 2.69 INR/km)
+        assumptions["diesel_operating_cost_per_km"] = round(2.69 * (args.diesel_price / 94.5), 3)
+    if args.electricity_tariff is not None:
+        # Scale EV operating cost proportionally to tariff (base 7.5 -> 1.28 INR/km)
+        assumptions["ev_operating_cost_per_km"] = round(1.28 * (args.electricity_tariff / 7.5), 3)
+
+    results = execute_pipeline(args.csv_path, subsidy_active=sub_flag, custom_assumptions=assumptions if assumptions else None)
     
     if args.export_excel:
         generate_fleet_excel(results, args.export_excel)
