@@ -1,535 +1,924 @@
 import React, { useState, useEffect } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
-  PieChart, Pie, Cell, Legend 
+  PieChart, Pie, Cell, Legend, LineChart, Line, AreaChart, Area
 } from 'recharts';
 import { 
-  Zap, Upload, RefreshCw, CheckCircle2, AlertTriangle, 
-  XCircle, TrendingUp, Leaf, BatteryCharging, Clock, 
-  FileText, ShieldCheck, HelpCircle, Layers
+  Truck, BatteryCharging, DollarSign, Leaf, Settings, Upload, 
+  MessageSquare, Zap, ShieldCheck, Download, RefreshCw, CheckCircle2, 
+  AlertTriangle, XCircle, Search, Filter, ChevronRight, X, ArrowUpRight
 } from 'lucide-react';
 import './App.css';
 
 const API_BASE = "http://localhost:5000/api";
 
 export default function App() {
+  const [currentView, setCurrentView] = useState('FLEET');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [subsidyActive, setSubsidyActive] = useState(true);
-  const [activeTab, setActiveTab] = useState('tco');
-  const [filterVerdict, setFilterVerdict] = useState('ALL');
+  
+  // Interactive sliders for Finance sensitivity
+  const [dieselPriceSlider, setDieselPriceSlider] = useState(94.5);
+  const [tariffSlider, setTariffSlider] = useState(7.5);
+  
+  // AI Advisor drawer state
+  const [advisorOpen, setAdvisorOpen] = useState(false);
+  const [messages, setMessages] = useState([
+    {
+      role: 'assistant',
+      content: 'Hello! I am VidyutFleet Advisor. Ask me anything about your fleet readiness scores, EDF depot bay schedules, or CEEW/CEA payback calculations.',
+      citations: ['VidyutFleet Knowledge Base']
+    }
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+
+  // Filters
   const [searchQuery, setSearchQuery] = useState('');
+  const [verdictFilter, setVerdictFilter] = useState('ALL');
   const [selectedVehicle, setSelectedVehicle] = useState(null);
 
-  // Fetch initial sample data
-  const loadFleetData = async (subsidy = subsidyActive) => {
+  // Load initial data
+  const fetchAnalysis = async (subsidy = subsidyActive) => {
     setLoading(true);
-    setError(null);
     try {
-      const res = await fetch(`${API_BASE}/sample?subsidy=${subsidy}`);
-      if (!res.ok) throw new Error("Failed to load sample fleet data");
+      const res = await fetch(`${API_BASE}/analysis/latest?subsidy=${subsidy}`);
+      if (!res.ok) throw new Error("Backend query failed");
       const json = await res.json();
       setData(json);
-    } catch (err) {
-      console.error(err);
-      setError("Could not reach backend API at http://localhost:5000. Running in offline fallback mode.");
-      // Self-contained demo fallback
-      loadLocalMock(subsidy);
+    } catch (e) {
+      console.warn("Using offline fallback mode", e);
     } finally {
       setLoading(false);
     }
   };
 
-  const loadLocalMock = (subsidy) => {
-    setData({
-      summary: { ready_now: 17, ready_with_charger: 6, not_yet: 2, total: 25 },
-      charging_plan: {
-        min_chargers: 9,
-        total_energy_kwh: 241.6,
-        schedule: [
-          { vehicle_id: "VF-101", route_name: "Ludhiana-FocalPoint-Industrial", bay_id: "Bay 1", start_time: "20:00", end_time: "22:45", departure_time: "06:00", duration_hours: 2.7, energy_kwh: 8.5, status: "On-Time Dispatch" },
-          { vehicle_id: "VF-102", route_name: "ModelTown-SarabhaNagar-Express", bay_id: "Bay 2", start_time: "20:00", end_time: "22:15", departure_time: "06:30", duration_hours: 2.2, energy_kwh: 7.0, status: "On-Time Dispatch" },
-          { vehicle_id: "VF-103", route_name: "Dugri-GillRoad-Suburban", bay_id: "Bay 3", start_time: "19:00", end_time: "22:15", departure_time: "05:30", duration_hours: 3.2, energy_kwh: 10.5, status: "On-Time Dispatch" },
-          { vehicle_id: "VF-105", route_name: "IndustrialAreaA-TransportNagar", bay_id: "Bay 1", start_time: "22:45", end_time: "01:30", departure_time: "06:00", duration_hours: 2.8, energy_kwh: 9.5, status: "On-Time Dispatch" }
-        ]
-      },
-      financials: {
-        subsidy_active: subsidy,
-        annual_costs: { ev: 875520, diesel: 1840800, cng: 1607400, petrol: 2195640 },
-        annual_net_savings_inr: 965280,
-        total_capex_investment_inr: subsidy ? 1265000 : 2415000,
-        payback_months: subsidy ? 15.7 : 30.0,
-        co2: { diesel_tonnes_year: 52.8, ev_tonnes_year: 19.4, net_abated_tonnes_year: 33.4, reduction_pct: 63.3 }
-      },
-      vehicles: [
-        { vehicle_id: "VF-101", route_name: "Ludhiana-FocalPoint-Industrial", distance_km: 68, dwell_start: "19:30", dwell_end: "06:00", avg_payload_pct: 72, stop_count: 28, score: 87.5, verdict: "Ready now", metrics: { R_range_fit: 82.3, D_dwell_fit: 100, Q_payload_fit: 81.1, S_tariff_fit: 100 } },
-        { vehicle_id: "VF-102", route_name: "ModelTown-SarabhaNagar-Express", distance_km: 52, dwell_start: "20:00", dwell_end: "06:30", avg_payload_pct: 60, stop_count: 35, score: 91.2, verdict: "Ready now", metrics: { R_range_fit: 86.5, D_dwell_fit: 100, Q_payload_fit: 86.0, S_tariff_fit: 100 } },
-        { vehicle_id: "VF-107", route_name: "JalandharBypass-PhagwaraLink", distance_km: 155, dwell_start: "21:00", dwell_end: "05:00", avg_payload_pct: 92, stop_count: 12, score: 55.4, verdict: "Ready with depot charger", metrics: { R_range_fit: 20.0, D_dwell_fit: 88.0, Q_payload_fit: 65.0, S_tariff_fit: 82.0 } },
-        { vehicle_id: "VF-111", route_name: "Khanna-MandiGobindgarh-Heavy", distance_km: 175, dwell_start: "21:30", dwell_end: "04:30", avg_payload_pct: 96, stop_count: 8, score: 43.8, verdict: "Not yet", metrics: { R_range_fit: 0.0, D_dwell_fit: 72.0, Q_payload_fit: 61.0, S_tariff_fit: 75.0 } }
-      ]
-    });
-  };
-
   useEffect(() => {
-    loadFleetData(subsidyActive);
+    fetchAnalysis(subsidyActive);
   }, []);
 
   const handleSubsidyToggle = () => {
-    const nextState = !subsidyActive;
-    setSubsidyActive(nextState);
-    loadFleetData(nextState);
+    const next = !subsidyActive;
+    setSubsidyActive(next);
+    fetchAnalysis(next);
   };
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("subsidy", subsidyActive ? "true" : "false");
-
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/upload`, {
+      const res = await fetch(`${API_BASE}/uploads/csv`, { method: "POST", body: formData });
+      const upl = await res.json();
+      // Run analysis
+      const runRes = await fetch(`${API_BASE}/analysis/run`, {
         method: "POST",
-        body: formData
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uploadId: upl.uploadId, subsidyActive })
       });
-      if (!res.ok) throw new Error("Upload processing failed");
-      const json = await res.json();
-      setData(json);
+      const runJson = await runRes.json();
+      setData(runJson);
+      alert(`CSV "${file.name}" uploaded & analyzed successfully!`);
+      setCurrentView('FLEET');
     } catch (err) {
-      alert("Error processing CSV: " + err.message);
+      alert("Upload failed: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
+  const sendChatMessage = async (textToSend) => {
+    const query = textToSend || chatInput;
+    if (!query.trim()) return;
+
+    const userMsg = { role: 'user', content: query };
+    setMessages(prev => [...prev, userMsg]);
+    setChatInput('');
+    setChatLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/assistant/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query })
+      });
+      const data = await res.json();
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.answer,
+        citations: data.citations || []
+      }]);
+    } catch (e) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: "I do not have sufficient route or tariff data in your uploaded dispatch logs to answer this accurately.",
+        citations: []
+      }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   if (!data && loading) {
     return (
-      <div className="app-container" style={{ textAlign: 'center', paddingTop: 100 }}>
-        <RefreshCw className="animate-spin" size={48} style={{ color: '#3B82F6', margin: '0 auto 16px' }} />
-        <h2>Initializing VidyutFleet Analytical Engine...</h2>
-        <p style={{ color: '#9CA3AF' }}>Loading Indian logistics dispatch dataset and computing EDF bay schedules</p>
+      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#0B0F19', color: 'white' }}>
+        <RefreshCw className="animate-spin" size={40} style={{ color: '#2563EB', marginRight: 12 }} />
+        <h2>Initializing VidyutFleet Multi-Agent Engine...</h2>
       </div>
     );
   }
 
-  const { summary, financials, charging_plan, vehicles } = data;
+  const { summary, charging_plan, financials, sustainability, records, priority_transition_queue } = data || {};
 
-  // Chart data: Running cost benchmark (CEEW 2024)
-  const costChartData = [
-    { name: 'EV (Electric)', cost: 1.28, fill: '#10B981' },
-    { name: 'CNG', cost: 2.35, fill: '#3B82F6' },
-    { name: 'Diesel', cost: 2.69, fill: '#F59E0B' },
-    { name: 'Petrol', cost: 3.21, fill: '#EF4444' }
+  // Cost chart data
+  const costBenchmarkData = [
+    { powertrain: 'Electric (EV)', cost: 1.28, fill: '#10B981' },
+    { powertrain: 'CNG', cost: 2.35, fill: '#3B82F6' },
+    { powertrain: 'Diesel', cost: 2.69, fill: '#F59E0B' },
+    { powertrain: 'Petrol', cost: 3.21, fill: '#EF4444' }
   ];
 
-  // Pie chart data: Readiness breakdown
-  const pieData = [
-    { name: 'Ready Now', value: summary.ready_now, color: '#10B981' },
-    { name: 'Ready w/ Charger', value: summary.ready_with_charger, color: '#F59E0B' },
-    { name: 'Not Yet', value: summary.not_yet, color: '#EF4444' }
+  // Pie chart data
+  const pieReadiness = [
+    { name: 'Ready Now', value: summary?.ready_now_count || 0, color: '#10B981' },
+    { name: 'Ready w/ Charger', value: summary?.ready_with_charger_count || 0, color: '#F59E0B' },
+    { name: 'Not Yet', value: summary?.not_yet_count || 0, color: '#EF4444' }
   ];
 
-  // Filtered vehicles
-  const filteredVehicles = vehicles.filter(v => {
-    const matchVerdict = filterVerdict === 'ALL' || 
-      (filterVerdict === 'READY_NOW' && v.verdict === 'Ready now') ||
-      (filterVerdict === 'CHARGER' && v.verdict === 'Ready with depot charger') ||
-      (filterVerdict === 'NOT_YET' && v.verdict === 'Not yet');
-    const matchSearch = v.vehicle_id.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      v.route_name.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchVerdict && matchSearch;
+  // Filter vehicles
+  const filteredVehicles = (records || []).filter(v => {
+    const matchVerdict = verdictFilter === 'ALL' || 
+      (verdictFilter === 'READY_NOW' && v.verdict === 'Ready Now') ||
+      (verdictFilter === 'CHARGER' && v.verdict === 'Ready with Depot Charger') ||
+      (verdictFilter === 'NOT_YET' && v.verdict === 'Not Yet');
+    const matchQuery = v.vehicle_id.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      v.route_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      v.depot_id.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchVerdict && matchQuery;
   });
 
   return (
-    <div className="app-container">
-      {/* Top Brand Header */}
-      <header className="top-header">
-        <div className="brand-section">
-          <div className="brand-logo">
-            <Zap size={24} color="#FFFFFF" />
+    <div className="app-shell">
+      {/* Sidebar Navigation */}
+      <aside className="app-sidebar">
+        <div className="sidebar-brand">
+          <div className="brand-icon">
+            <Zap size={22} color="white" />
           </div>
-          <div className="brand-info">
+          <div className="brand-text">
             <h1>VidyutFleet</h1>
-            <p>Data-Driven Commercial Fleet Electrification & Depot Charger Optimization</p>
+            <span>Smart India Hackathon 2026</span>
           </div>
         </div>
 
-        <div className="header-badges">
-          <span className="badge-pill badge-hackathon">
-            <Layers size={14} /> SMART INDIA HACKATHON 2026
-          </span>
-          <span className="badge-pill badge-live">
-            <ShieldCheck size={14} /> DEPOT ENGINE: LIVE
-          </span>
-        </div>
-      </header>
-
-      {/* Control Toolbar */}
-      <section className="control-toolbar">
-        <div className="action-buttons">
-          <label className="btn-primary">
-            <Upload size={16} /> Upload Dispatch CSV
-            <input type="file" accept=".csv" onChange={handleFileUpload} style={{ display: 'none' }} />
-          </label>
-
-          <button className="btn-secondary" onClick={() => loadFleetData(subsidyActive)}>
-            <RefreshCw size={16} /> Reload Fleet Sample (routes.csv)
-          </button>
-        </div>
-
-        <div className="toggle-group">
-          <span className="toggle-label">PM E-DRIVE Subsidy (₹50,000/veh):</span>
-          <div 
-            className={`toggle-switch ${subsidyActive ? 'active' : ''}`}
-            onClick={handleSubsidyToggle}
-            title="Toggle PM E-DRIVE / FAME-II Capital Subsidy On/Off"
+        <nav className="sidebar-nav">
+          <button 
+            className={`nav-item ${currentView === 'FLEET' ? 'active' : ''}`}
+            onClick={() => setCurrentView('FLEET')}
           >
-            <div className="toggle-handle"></div>
-          </div>
-          <span style={{ fontSize: 13, fontWeight: 700, color: subsidyActive ? '#10B981' : '#9CA3AF' }}>
-            {subsidyActive ? "ACTIVE" : "OFF"}
-          </span>
+            <Truck size={18} /> Fleet Manager View
+          </button>
+
+          <button 
+            className={`nav-item ${currentView === 'DEPOT' ? 'active' : ''}`}
+            onClick={() => setCurrentView('DEPOT')}
+          >
+            <BatteryCharging size={18} /> Depot Manager View
+          </button>
+
+          <button 
+            className={`nav-item ${currentView === 'FINANCE' ? 'active' : ''}`}
+            onClick={() => setCurrentView('FINANCE')}
+          >
+            <DollarSign size={18} /> Finance Team View
+          </button>
+
+          <button 
+            className={`nav-item ${currentView === 'SUSTAINABILITY' ? 'active' : ''}`}
+            onClick={() => setCurrentView('SUSTAINABILITY')}
+          >
+            <Leaf size={18} /> Sustainability View
+          </button>
+
+          <button 
+            className={`nav-item ${currentView === 'UPLOAD' ? 'active' : ''}`}
+            onClick={() => setCurrentView('UPLOAD')}
+          >
+            <Upload size={18} /> CSV Upload & Ingest
+          </button>
+
+          <button 
+            className={`nav-item ${currentView === 'ADMIN' ? 'active' : ''}`}
+            onClick={() => setCurrentView('ADMIN')}
+          >
+            <Settings size={18} /> Admin & Catalogue
+          </button>
+        </nav>
+
+        <div className="sidebar-footer">
+          <p>Team Vidyut · GNDEC</p>
+          <p style={{ marginTop: 4, color: '#475569' }}>CEEW 2024 & CEA v16 Engine</p>
         </div>
-      </section>
+      </aside>
 
-      {/* KPI Cards Grid */}
-      <section className="kpi-grid">
-        <div className="kpi-card">
-          <div className="kpi-title">Monitored Fleet</div>
-          <div className="kpi-value">{summary.total}</div>
-          <div className="kpi-subtext">Commercial 3W/4W Delivery Vans</div>
-        </div>
-
-        <div className="kpi-card green">
-          <div className="kpi-title">Electrification Rate</div>
-          <div className="kpi-value">
-            {Math.round(((summary.ready_now + summary.ready_with_charger) / summary.total) * 100)}%
-          </div>
-          <div className="kpi-subtext">{summary.ready_now + summary.ready_with_charger} of {summary.total} routes viable</div>
-        </div>
-
-        <div className="kpi-card amber">
-          <div className="kpi-title">Depot Chargers Sized</div>
-          <div className="kpi-value">{charging_plan.min_chargers} Bays</div>
-          <div className="kpi-subtext">Optimized from 20 1:1 bays via EDF</div>
-        </div>
-
-        <div className="kpi-card green">
-          <div className="kpi-title">Annual Fuel Savings</div>
-          <div className="kpi-value">₹{(financials.annual_net_savings_inr / 100000).toFixed(2)}L</div>
-          <div className="kpi-subtext">Net vs CEEW Diesel Baseline</div>
-        </div>
-
-        <div className="kpi-card">
-          <div className="kpi-title">CO₂ Abatement</div>
-          <div className="kpi-value">{financials.co2.net_abated_tonnes_year} T</div>
-          <div className="kpi-subtext">CEA v16 Grid Baseline (0.71 kg/kWh)</div>
-        </div>
-
-        <div className="kpi-card amber">
-          <div className="kpi-title">Payback Period</div>
-          <div className="kpi-value">{financials.payback_months} Mo</div>
-          <div className="kpi-subtext">{subsidyActive ? "Subsidized ROI" : "Full CAPEX Baseline"}</div>
-        </div>
-      </section>
-
-      {/* 3 Decision Verdict Overview */}
-      <section className="verdict-overview">
-        <div className="verdict-box ready-now">
-          <div className="verdict-info">
-            <h3 style={{ color: '#10B981' }}>READY NOW</h3>
-            <p>Score ≥ 75 & Dwell ≥ 70 | Direct drop-in EV transition</p>
-          </div>
-          <div className="verdict-count" style={{ color: '#10B981' }}>{summary.ready_now}</div>
-        </div>
-
-        <div className="verdict-box ready-charger">
-          <div className="verdict-info">
-            <h3 style={{ color: '#F59E0B' }}>READY WITH DEPOT CHARGER</h3>
-            <p>Score 50–74 | Requires dedicated overnight bay charging</p>
-          </div>
-          <div className="verdict-count" style={{ color: '#F59E0B' }}>{summary.ready_with_charger}</div>
-        </div>
-
-        <div className="verdict-box not-yet">
-          <div className="verdict-info">
-            <h3 style={{ color: '#EF4444' }}>NOT YET</h3>
-            <p>Score &lt; 50 | Heavy payload or excessive distance (&gt;160 km)</p>
-          </div>
-          <div className="verdict-count" style={{ color: '#EF4444' }}>{summary.not_yet}</div>
-        </div>
-      </section>
-
-      {/* Analytics Tabs & Visuals */}
-      <section className="analytics-grid">
-        {/* Left Visual Panel */}
-        <div className="card-panel">
-          <div className="panel-header">
-            <div className="panel-title">
-              <TrendingUp size={18} color="#3B82F6" />
-              <span>Comparative Financial & Fleet Analytics</span>
-            </div>
-
-            <div className="tabs-nav">
-              <button 
-                className={`tab-btn ${activeTab === 'tco' ? 'active' : ''}`}
-                onClick={() => setActiveTab('tco')}
-              >
-                Cost per km (CEEW)
-              </button>
-              <button 
-                className={`tab-btn ${activeTab === 'annual' ? 'active' : ''}`}
-                onClick={() => setActiveTab('annual')}
-              >
-                Annual Spend Comparison
-              </button>
-            </div>
-          </div>
-
-          <div style={{ height: 260, width: '100%' }}>
-            {activeTab === 'tco' ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={costChartData} margin={{ top: 15, right: 20, left: 0, bottom: 5 }}>
-                  <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 12 }} />
-                  <YAxis stroke="#9CA3AF" unit=" ₹" />
-                  <Tooltip 
-                    contentStyle={{ background: '#1F2937', border: '1px solid #374151', borderRadius: 8 }}
-                    formatter={(val) => [`₹${val} / km`, 'Running Cost']}
-                  />
-                  <Bar dataKey="cost" radius={[6, 6, 0, 0]}>
-                    {costChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart 
-                  data={[
-                    { name: 'Diesel Baseline', amount: financials.annual_costs.diesel / 100000 },
-                    { name: 'CNG Alternative', amount: financials.annual_costs.cng / 100000 },
-                    { name: 'VidyutFleet EV Plan', amount: financials.annual_costs.ev / 100000 }
-                  ]}
-                  margin={{ top: 15, right: 20, left: 0, bottom: 5 }}
-                >
-                  <XAxis dataKey="name" stroke="#9CA3AF" />
-                  <YAxis stroke="#9CA3AF" unit=" Lakhs" />
-                  <Tooltip 
-                    contentStyle={{ background: '#1F2937', border: '1px solid #374151', borderRadius: 8 }}
-                    formatter={(val) => [`₹${val.toFixed(2)} Lakhs`, 'Annual Fuel Spend']}
-                  />
-                  <Bar dataKey="amount" fill="#3B82F6" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-          <p style={{ fontSize: 12, color: '#9CA3AF', marginTop: 12, textAlign: 'center' }}>
-            Source: Council on Energy, Environment and Water (CEEW 2024). Commercial EV operation at ₹1.28/km cuts fuel expenses by 52.4% over diesel.
-          </p>
-        </div>
-
-        {/* Right Pie Distribution Panel */}
-        <div className="card-panel">
-          <div className="panel-header">
-            <div className="panel-title">
-              <Zap size={18} color="#10B981" />
-              <span>Fleet Readiness Share</span>
-            </div>
-          </div>
-
-          <div style={{ height: 260, width: '100%' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie 
-                  data={pieData} 
-                  innerRadius={60} 
-                  outerRadius={85} 
-                  paddingAngle={5} 
-                  dataKey="value"
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={`pie-cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  contentStyle={{ background: '#1F2937', border: '1px solid #374151', borderRadius: 8 }}
-                  formatter={(val, name) => [`${val} Vehicles`, name]}
-                />
-                <Legend 
-                  verticalAlign="bottom" 
-                  height={36} 
-                  formatter={(value) => <span style={{ color: '#D1D5DB', fontSize: 12 }}>{value}</span>}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <p style={{ fontSize: 11, color: '#9CA3AF', textAlign: 'center' }}>
-            Multi-factor scoring: 0.40R + 0.30D + 0.20Q + 0.10S
-          </p>
-        </div>
-      </section>
-
-      {/* EDF Charging Bay Schedule Panel */}
-      <section className="card-panel" style={{ marginBottom: 24 }}>
-        <div className="panel-header">
-          <div className="panel-title">
-            <BatteryCharging size={18} color="#F59E0B" />
-            <span>Earliest-Deadline-First (EDF) Depot Bay Staggered Schedule ({charging_plan.min_chargers} Sized Bays)</span>
-          </div>
-          <span style={{ fontSize: 12, color: '#9CA3AF' }}>
-            Total Night Charging Demand: {charging_plan.total_energy_kwh} kWh
-          </span>
-        </div>
-
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Assigned Bay</th>
-                <th>Vehicle ID</th>
-                <th>Route Name</th>
-                <th>Charging Start</th>
-                <th>Charging End</th>
-                <th>Departure Time</th>
-                <th>Duration (Hrs)</th>
-                <th>Energy (kWh)</th>
-                <th>Departure Cushion</th>
-                <th>Dispatch Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {charging_plan.schedule.slice(0, 10).map((s, idx) => (
-                <tr key={idx}>
-                  <td style={{ fontWeight: 700, color: '#3B82F6' }}>{s.bay_id}</td>
-                  <td style={{ fontWeight: 600 }}>{s.vehicle_id}</td>
-                  <td>{s.route_name}</td>
-                  <td>{s.start_time}</td>
-                  <td>{s.end_time}</td>
-                  <td style={{ color: '#F59E0B' }}>{s.departure_time}</td>
-                  <td>{s.duration_hours} hrs</td>
-                  <td>{s.energy_kwh} kWh</td>
-                  <td>+{s.buffer_mins} mins</td>
-                  <td>
-                    <span className="badge-tag badge-green">
-                      <CheckCircle2 size={12} style={{ display: 'inline', marginRight: 4 }} />
-                      {s.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p style={{ fontSize: 12, color: '#9CA3AF', marginTop: 12 }}>
-          Showing top 10 scheduled bay sessions. Greedily allocates bays to vehicles with the earliest morning departure deadline, preventing depot transformer overloading.
-        </p>
-      </section>
-
-      {/* Detailed Vehicle Feasibility Table */}
-      <section className="card-panel">
-        <div className="panel-header" style={{ flexWrap: 'wrap', gap: 12 }}>
-          <div className="panel-title">
-            <FileText size={18} color="#3B82F6" />
-            <span>Route-by-Route Feasibility Inspector ({filteredVehicles.length} Records)</span>
+      {/* Main Wrapper */}
+      <div className="main-wrapper">
+        {/* Top Navbar */}
+        <header className="app-navbar">
+          <div className="navbar-status">
+            <span className="status-badge">
+              <ShieldCheck size={14} /> LIVE ANALYTICAL ENGINE
+            </span>
+            <span style={{ fontSize: 13, color: '#94A3B8' }}>
+              Depots: <strong>Ludhiana, Delhi NCR, Chandigarh</strong>
+            </span>
           </div>
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <a 
+              href={`${API_BASE}/reports/excel`}
+              download 
+              className="btn-secondary"
+              style={{ textDecoration: 'none', padding: '6px 14px', fontSize: 12 }}
+            >
+              <Download size={14} /> Download Excel Report
+            </a>
+
+            <button 
+              className="btn-primary" 
+              style={{ padding: '6px 14px', fontSize: 12 }}
+              onClick={() => setAdvisorOpen(true)}
+            >
+              <MessageSquare size={14} /> VidyutFleet Advisor (RAG)
+            </button>
+          </div>
+        </header>
+
+        {/* Dynamic Content Views */}
+        <main className="content-body">
+          {/* Top Shared KPI Row */}
+          <div className="kpi-row">
+            <div className="kpi-box">
+              <div className="kpi-label">Total Monitored Fleet</div>
+              <div className="kpi-num">{summary?.total_vehicles || 0}</div>
+              <div className="kpi-sub">Commercial 3W & LCVs</div>
+            </div>
+
+            <div className="kpi-box green">
+              <div className="kpi-label">Electrification Potential</div>
+              <div className="kpi-num">{summary?.electrification_rate_pct || 0}%</div>
+              <div className="kpi-sub">{(summary?.ready_now_count || 0) + (summary?.ready_with_charger_count || 0)} Viable Routes</div>
+            </div>
+
+            <div className="kpi-box amber">
+              <div className="kpi-label">Sized Shared Chargers</div>
+              <div className="kpi-num">{charging_plan?.recommended_chargers || 0} Bays</div>
+              <div className="kpi-sub">EDF Conflict-Free Sizing</div>
+            </div>
+
+            <div className="kpi-box green">
+              <div className="kpi-label">Annual Net Savings</div>
+              <div className="kpi-num">₹{((financials?.annual_net_savings_inr || 0) / 100000).toFixed(1)}L</div>
+              <div className="kpi-sub">vs CEEW Diesel Baseline</div>
+            </div>
+
+            <div className="kpi-box">
+              <div className="kpi-label">Well-to-Wheel CO₂ Abated</div>
+              <div className="kpi-num">{sustainability?.annual_emissions_tonnes?.net_co2_abated_tonnes || 0} T</div>
+              <div className="kpi-sub">CEA Grid Factor (0.675 kg/kWh)</div>
+            </div>
+          </div>
+
+          {/* ==================================================== */}
+          {/* VIEW 1: FLEET MANAGER VIEW                           */}
+          {/* ==================================================== */}
+          {currentView === 'FLEET' && (
+            <div>
+              {/* Transition Priority Queue Card */}
+              <div className="glass-panel">
+                <div className="panel-title-bar">
+                  <div className="panel-heading">
+                    <Truck size={18} color="#2563EB" />
+                    <span>Top-10 Transition Priority Queue (Recommended First Batch)</span>
+                  </div>
+                  <span style={{ fontSize: 12, color: '#94A3B8' }}>Ordered by Highest Feasibility Score</span>
+                </div>
+
+                <div className="table-responsive">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Priority</th>
+                        <th>Vehicle Code</th>
+                        <th>Route Name</th>
+                        <th>Daily Distance</th>
+                        <th>Feasibility Score</th>
+                        <th>Verdict Badge</th>
+                        <th>Recharge Duration</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(priority_transition_queue || []).slice(0, 8).map((v, i) => (
+                        <tr key={v.vehicle_id}>
+                          <td style={{ fontWeight: 800, color: '#60A5FA' }}>#{i + 1}</td>
+                          <td style={{ fontWeight: 700 }}>{v.vehicle_id}</td>
+                          <td>{v.route_name}</td>
+                          <td>{v.daily_distance_km} km</td>
+                          <td style={{ fontWeight: 800, color: '#10B981' }}>{v.score} / 100</td>
+                          <td>
+                            <span className={v.verdict === 'Ready Now' ? 'badge-ready-now' : 'badge-charger'}>
+                              {v.verdict}
+                            </span>
+                          </td>
+                          <td>{v.charging_needs?.charge_hours_required} hrs</td>
+                          <td>
+                            <button 
+                              className="btn-secondary" 
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              onClick={() => setSelectedVehicle(v)}
+                            >
+                              Inspect Factor Breakdown
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Full Fleet Table */}
+              <div className="glass-panel">
+                <div className="panel-title-bar" style={{ flexWrap: 'wrap', gap: 12 }}>
+                  <div className="panel-heading">
+                    <span>Complete Route Readiness Master Explorer ({filteredVehicles.length} Vehicles)</span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    <div style={{ position: 'relative' }}>
+                      <input 
+                        type="text" 
+                        placeholder="Search vehicle, route, depot..." 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        style={{
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid var(--border-light)',
+                          color: 'white',
+                          padding: '6px 12px 6px 30px',
+                          borderRadius: 8,
+                          fontSize: 12
+                        }}
+                      />
+                      <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#94A3B8' }} />
+                    </div>
+
+                    <select 
+                      value={verdictFilter}
+                      onChange={(e) => setVerdictFilter(e.target.value)}
+                      style={{
+                        background: '#1E293B',
+                        border: '1px solid var(--border-light)',
+                        color: 'white',
+                        padding: '6px 12px',
+                        borderRadius: 8,
+                        fontSize: 12
+                      }}
+                    >
+                      <option value="ALL">All Verdicts</option>
+                      <option value="READY_NOW">Ready Now</option>
+                      <option value="CHARGER">Ready w/ Charger</option>
+                      <option value="NOT_YET">Not Yet</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="table-responsive">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Vehicle Code</th>
+                        <th>Route Name</th>
+                        <th>Depot</th>
+                        <th>Distance</th>
+                        <th>EV Score</th>
+                        <th>Rollout Verdict</th>
+                        <th>Component Breakdown (R | D | Q | S)</th>
+                        <th>Why This Verdict?</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredVehicles.slice(0, 20).map((v) => (
+                        <tr key={v.vehicle_id}>
+                          <td style={{ fontWeight: 700 }}>{v.vehicle_id}</td>
+                          <td>{v.route_name}</td>
+                          <td>{v.depot_id}</td>
+                          <td>{v.daily_distance_km} km</td>
+                          <td style={{ fontWeight: 800, color: v.score >= 80 ? '#10B981' : v.score >= 60 ? '#F59E0B' : '#EF4444' }}>
+                            {v.score}
+                          </td>
+                          <td>
+                            <span className={
+                              v.verdict === 'Ready Now' ? 'badge-ready-now' :
+                              v.verdict === 'Ready with Depot Charger' ? 'badge-charger' : 'badge-not-yet'
+                            }>
+                              {v.verdict}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: 11, fontFamily: 'monospace', color: '#94A3B8' }}>
+                            R:{v.breakdown?.route_feasibility} | D:{v.breakdown?.distance_suitability} | C:{v.breakdown?.charging_feasibility} | O:{v.breakdown?.operational_suitability}
+                          </td>
+                          <td style={{ fontSize: 12, color: '#CBD5E1' }}>{v.explanation}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW 2: DEPOT MANAGER VIEW                          */}
+          {/* ==================================================== */}
+          {currentView === 'DEPOT' && (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 24 }}>
+                <div className="kpi-box">
+                  <div className="kpi-label">Minimum Chargers Required</div>
+                  <div className="kpi-num">{charging_plan?.min_chargers_required || 0}</div>
+                  <div className="kpi-sub">Analytical Dwell Overlap Lower Bound</div>
+                </div>
+
+                <div className="kpi-box green">
+                  <div className="kpi-label">Recommended Sized Bays</div>
+                  <div className="kpi-num">{charging_plan?.recommended_chargers || 0} Bays</div>
+                  <div className="kpi-sub">Includes 25% Operational Reserve</div>
+                </div>
+
+                <div className="kpi-box amber">
+                  <div className="kpi-label">Peak Grid Load Demand</div>
+                  <div className="kpi-num">{charging_plan?.peak_power_kw || 0} kW</div>
+                  <div className="kpi-sub">Simultaneous 3.3 kW Sessions</div>
+                </div>
+
+                <div className="kpi-box">
+                  <div className="kpi-label">Charger Bay Utilization</div>
+                  <div className="kpi-num">{charging_plan?.charger_utilization_pct || 0}%</div>
+                  <div className="kpi-sub">Across 12-Hour Overnight Dwell</div>
+                </div>
+              </div>
+
+              {/* Gantt Schedule Table */}
+              <div className="glass-panel">
+                <div className="panel-title-bar">
+                  <div className="panel-heading">
+                    <BatteryCharging size={18} color="#F59E0B" />
+                    <span>Earliest-Deadline-First (EDF) Depot Bay Staggered Schedule</span>
+                  </div>
+                  <span style={{ fontSize: 12, color: '#10B981' }}>
+                    Zero Transformer Overloading · Next-Day Departure Priority
+                  </span>
+                </div>
+
+                <div className="table-responsive">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Allocated Bay</th>
+                        <th>Vehicle ID</th>
+                        <th>Route Name</th>
+                        <th>Charging Start</th>
+                        <th>Charging Finish</th>
+                        <th>Next Departure Deadline</th>
+                        <th>Duration</th>
+                        <th>Energy Delivered</th>
+                        <th>Departure Slack Cushion</th>
+                        <th>Dispatch Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(charging_plan?.gantt_schedule || []).slice(0, 15).map((s, idx) => (
+                        <tr key={idx}>
+                          <td style={{ fontWeight: 800, color: '#38BDF8' }}>{s.bay_id}</td>
+                          <td style={{ fontWeight: 700 }}>{s.vehicle_id}</td>
+                          <td>{s.route_name}</td>
+                          <td>{s.start_time}</td>
+                          <td>{s.end_time}</td>
+                          <td style={{ color: '#F59E0B', fontWeight: 600 }}>{s.departure_time}</td>
+                          <td>{s.duration_hours} hrs</td>
+                          <td>{s.energy_kwh} kWh</td>
+                          <td>+{s.slack_buffer_mins} mins</td>
+                          <td>
+                            <span className="status-badge">
+                              <CheckCircle2 size={12} /> {s.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW 3: FINANCE TEAM VIEW                           */}
+          {/* ==================================================== */}
+          {currentView === 'FINANCE' && (
+            <div>
+              {/* Interactive Sensitivity Controls */}
+              <div className="glass-panel" style={{ background: 'rgba(30, 41, 59, 0.4)' }}>
+                <div className="panel-title-bar">
+                  <div className="panel-heading">
+                    <DollarSign size={18} color="#10B981" />
+                    <span>Interactive Financial Sensitivity & Policy Simulator</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>PM E-DRIVE Subsidy:</span>
+                    <button 
+                      onClick={handleSubsidyToggle}
+                      className="btn-primary"
+                      style={{ padding: '4px 12px', fontSize: 11, background: subsidyActive ? '#10B981' : '#64748B' }}
+                    >
+                      {subsidyActive ? "₹50,000/veh ACTIVE" : "UNSUBSIDIZED OFF"}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+                  <div className="slider-group">
+                    <div className="slider-label">
+                      <span>Diesel Fuel Price (INR / Liter)</span>
+                      <strong>₹{dieselPriceSlider} / L</strong>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="80" 
+                      max="115" 
+                      step="0.5" 
+                      value={dieselPriceSlider} 
+                      onChange={(e) => setDieselPriceSlider(parseFloat(e.target.value))} 
+                    />
+                  </div>
+
+                  <div className="slider-group">
+                    <div className="slider-label">
+                      <span>Electricity Commercial Tariff (INR / kWh)</span>
+                      <strong>₹{tariffSlider} / kWh</strong>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="5.0" 
+                      max="12.0" 
+                      step="0.25" 
+                      value={tariffSlider} 
+                      onChange={(e) => setTariffSlider(parseFloat(e.target.value))} 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Charts & TCO Metrics */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
+                <div className="glass-panel">
+                  <div className="panel-title-bar">
+                    <span className="panel-heading">Operating Cost per km (CEEW 2024 Benchmark)</span>
+                  </div>
+                  <div style={{ height: 260 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={costBenchmarkData}>
+                        <XAxis dataKey="powertrain" stroke="#94A3B8" />
+                        <YAxis stroke="#94A3B8" unit=" ₹" />
+                        <Tooltip contentStyle={{ background: '#1E293B', border: '1px solid #334155', borderRadius: 8 }} />
+                        <Bar dataKey="cost" radius={[6, 6, 0, 0]}>
+                          {costBenchmarkData.map((e, i) => (
+                            <Cell key={i} fill={e.fill} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <p style={{ fontSize: 11, color: '#94A3B8', marginTop: 8, textAlign: 'center' }}>
+                    EV running cost (₹1.28/km) offers 52.4% operating savings over diesel (₹2.69/km).
+                  </p>
+                </div>
+
+                <div className="glass-panel">
+                  <div className="panel-title-bar">
+                    <span className="panel-heading">TCO Projections & Payback Metrics</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                      <span style={{ color: '#94A3B8' }}>Net Annual Operating Fuel Savings:</span>
+                      <strong style={{ color: '#10B981', fontSize: 16 }}>₹{(financials?.annual_net_savings_inr || 0).toLocaleString()}</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                      <span style={{ color: '#94A3B8' }}>Total Fleet CAPEX Investment Delta:</span>
+                      <strong style={{ color: '#38BDF8', fontSize: 16 }}>₹{(financials?.total_capex_investment_inr || 0).toLocaleString()}</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                      <span style={{ color: '#94A3B8' }}>Estimated Payback Period:</span>
+                      <strong style={{ color: '#F59E0B', fontSize: 16 }}>{financials?.payback_period?.months || 0} Months ({financials?.payback_period?.years || 0} Yrs)</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                      <span style={{ color: '#94A3B8' }}>5-Year Cumulative Net TCO Benefit:</span>
+                      <strong style={{ color: '#10B981', fontSize: 16 }}>₹{((financials?.tco_projection?.five_year_net_savings || 0) / 100000).toFixed(1)} Lakhs</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW 4: SUSTAINABILITY VIEW                         */}
+          {/* ==================================================== */}
+          {currentView === 'SUSTAINABILITY' && (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 24 }}>
+                <div className="kpi-box green">
+                  <div className="kpi-label">Annual Net CO₂ Reduction</div>
+                  <div className="kpi-num">{sustainability?.annual_emissions_tonnes?.net_co2_abated_tonnes || 0} MT</div>
+                  <div className="kpi-sub">Metric Tonnes Greenhouse Gases Abated</div>
+                </div>
+
+                <div className="kpi-box">
+                  <div className="kpi-label">Well-to-Wheel Carbon Reduction</div>
+                  <div className="kpi-num">{sustainability?.annual_emissions_tonnes?.percentage_reduction || 0}%</div>
+                  <div className="kpi-sub">Over Standard Diesel Fleet Baseline</div>
+                </div>
+
+                <div className="kpi-box green">
+                  <div className="kpi-label">Mature Trees Planted Equivalent</div>
+                  <div className="kpi-num">{sustainability?.green_equivalencies?.mature_trees_planted_equivalent || 0}</div>
+                  <div className="kpi-sub">Based on 22 kg CO₂/tree absorption</div>
+                </div>
+              </div>
+
+              <div className="glass-panel">
+                <div className="panel-title-bar">
+                  <div className="panel-heading">
+                    <Leaf size={18} color="#10B981" />
+                    <span>Central Electricity Authority (CEA) v16 Official Methodology</span>
+                  </div>
+                </div>
+                <div style={{ fontSize: 13, color: '#CBD5E1', lineHeight: 1.6 }}>
+                  <p>
+                    VidyutFleet calculates carbon abatement using the <strong>Central Electricity Authority (CEA) CO₂ Baseline Database for the Indian Power Sector (Version 16)</strong>.
+                  </p>
+                  <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+                    <li>National Grid Weighted Average Emission Factor: <strong>0.675 kg CO₂ / kWh</strong></li>
+                    <li>Diesel Commercial Vehicle Emission Factor: <strong>2.68 kg CO₂ / Liter</strong> (at 12.5 km/L = 0.214 kg CO₂/km)</li>
+                    <li>EV Commercial Consumption Factor: <strong>0.11 kWh / km</strong> (at 0.675 kg/kWh = 0.074 kg CO₂/km)</li>
+                  </ul>
+                  <p style={{ marginTop: 12, color: '#94A3B8' }}>
+                    *Note: We do not misrepresent EVs as 100% zero-emission; we rigorously account for India's coal/thermal grid power mix.*
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW 5: CSV UPLOAD & INGESTION VIEW                  */}
+          {/* ==================================================== */}
+          {currentView === 'UPLOAD' && (
+            <div className="glass-panel" style={{ maxWidth: 800, margin: '0 auto' }}>
+              <div className="panel-title-bar">
+                <div className="panel-heading">
+                  <Upload size={18} color="#2563EB" />
+                  <span>Upload Commercial Fleet Dispatch Logs (CSV)</span>
+                </div>
+              </div>
+
+              <div style={{ textAlign: 'center', padding: '40px 20px', border: '2px dashed var(--border-light)', borderRadius: 12 }}>
+                <Upload size={48} style={{ color: '#2563EB', margin: '0 auto 16px' }} />
+                <h3>Drag & Drop Your Fleet Dispatch CSV</h3>
+                <p style={{ color: '#94A3B8', fontSize: 13, marginTop: 6, marginBottom: 20 }}>
+                  Supports full 47-column master format or 6-column simplified format.
+                </p>
+
+                <label className="btn-primary" style={{ display: 'inline-block', cursor: 'pointer' }}>
+                  Select CSV File
+                  <input type="file" accept=".csv" onChange={handleFileUpload} style={{ display: 'none' }} />
+                </label>
+              </div>
+
+              <div style={{ marginTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: '#94A3B8' }}>Need the format template?</span>
+                <a 
+                  href={`${API_BASE}/reports/sample-csv`} 
+                  download 
+                  className="btn-secondary"
+                  style={{ textDecoration: 'none', fontSize: 12 }}
+                >
+                  <Download size={14} /> Download Sample fleet_routes.csv
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW 6: ADMIN & CATALOGUE VIEW                      */}
+          {/* ==================================================== */}
+          {currentView === 'ADMIN' && (
+            <div className="glass-panel">
+              <div className="panel-title-bar">
+                <div className="panel-heading">
+                  <Settings size={18} color="#38BDF8" />
+                  <span>Indian Commercial Electric Vehicle Catalogue (`ev_catalogue.csv`)</span>
+                </div>
+                <a 
+                  href={`${API_BASE}/catalogue`} 
+                  download 
+                  className="btn-secondary" 
+                  style={{ textDecoration: 'none', fontSize: 12 }}
+                >
+                  <Download size={14} /> Export Catalogue CSV
+                </a>
+              </div>
+
+              <div className="table-responsive">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Model ID</th>
+                      <th>Make & Model</th>
+                      <th>Category</th>
+                      <th>Battery (kWh)</th>
+                      <th>ARAI Range</th>
+                      <th>Practical Range</th>
+                      <th>Energy Use (kWh/km)</th>
+                      <th>Payload Capacity</th>
+                      <th>Charger Type</th>
+                      <th>Price (INR)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { id: "EV001", model: "Mahindra Treo Zor", type: "3W", bat: 7.5, arai: 125, prac: 95, use: 0.08, pl: 550, chg: "AC Type 2", price: "₹3,50,000" },
+                      { id: "EV002", model: "Piaggio Ape E-Xtra", type: "3W", bat: 8.9, arai: 120, prac: 90, use: 0.09, pl: 560, chg: "AC Type 2", price: "₹3,80,000" },
+                      { id: "EV003", model: "Tata Ace EV", type: "LCV", bat: 21.3, arai: 152, prac: 110, use: 0.16, pl: 750, chg: "AC Type 2", price: "₹9,00,000" },
+                      { id: "EV005", model: "Euler HiLoad", type: "LCV", bat: 21.0, arai: 120, prac: 90, use: 0.18, pl: 688, chg: "AC Type 2", price: "₹3,50,000" },
+                      { id: "EV008", model: "Mahindra Zor Grand", type: "3W", bat: 10.24, arai: 153, prac: 115, use: 0.09, pl: 500, chg: "AC Type 2", price: "₹3,90,000" }
+                    ].map((m) => (
+                      <tr key={m.id}>
+                        <td style={{ fontWeight: 700 }}>{m.id}</td>
+                        <td style={{ fontWeight: 600 }}>{m.model}</td>
+                        <td>{m.type}</td>
+                        <td>{m.bat} kWh</td>
+                        <td>{m.arai} km</td>
+                        <td style={{ color: '#10B981', fontWeight: 600 }}>{m.prac} km</td>
+                        <td>{m.use}</td>
+                        <td>{m.pl} kg</td>
+                        <td>{m.chg}</td>
+                        <td style={{ fontWeight: 700 }}>{m.price}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* Slide-out AI Advisor (RAG) Drawer */}
+      {advisorOpen && (
+        <aside className="chat-drawer">
+          <div className="drawer-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div className="brand-icon" style={{ width: 32, height: 32 }}>
+                <Zap size={16} color="white" />
+              </div>
+              <strong style={{ fontSize: 14 }}>VidyutFleet Advisor (RAG)</strong>
+            </div>
+            <button 
+              onClick={() => setAdvisorOpen(false)}
+              style={{ background: 'transparent', color: '#94A3B8', padding: 4 }}
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="drawer-body">
+            <div style={{ marginBottom: 12 }}>
+              <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>Suggested Questions:</span>
+              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {[
+                  "Which 10 routes should I electrify first?",
+                  "Why are some routes classified as Not Yet?",
+                  "How many chargers are required for Ludhiana depot?",
+                  "How much CO2 can my fleet reduce in one year?"
+                ].map((q, i) => (
+                  <div key={i} className="suggested-chip" onClick={() => sendChatMessage(q)}>
+                    {q}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {messages.map((m, idx) => (
+              <div key={idx} className={`chat-bubble ${m.role}`}>
+                <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                {m.citations && m.citations.length > 0 && (
+                  <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: 10, color: '#93C5FD' }}>
+                    <strong>Sources Cited:</strong> {m.citations.join(" · ")}
+                  </div>
+                )}
+              </div>
+            ))}
+            {chatLoading && (
+              <div className="chat-bubble assistant">
+                <RefreshCw className="animate-spin" size={14} style={{ display: 'inline', marginRight: 6 }} />
+                Retrieving grounded fleet facts...
+              </div>
+            )}
+          </div>
+
+          <div className="drawer-footer">
             <input 
               type="text" 
-              placeholder="Search route or vehicle ID..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Ask a question about your fleet..."
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
               style={{
-                background: 'rgba(255,255,255,0.05)',
+                flex: 1,
+                background: '#1E293B',
                 border: '1px solid var(--border-light)',
                 color: 'white',
-                padding: '6px 12px',
+                padding: '8px 12px',
                 borderRadius: 8,
                 fontSize: 12
               }}
             />
+            <button className="btn-primary" onClick={() => sendChatMessage()}>
+              Send
+            </button>
+          </div>
+        </aside>
+      )}
 
-            <select 
-              value={filterVerdict} 
-              onChange={(e) => setFilterVerdict(e.target.value)}
-              style={{
-                background: '#1F2937',
-                border: '1px solid var(--border-light)',
-                color: 'white',
-                padding: '6px 12px',
-                borderRadius: 8,
-                fontSize: 12
-              }}
+      {/* Vehicle Drilldown Modal */}
+      {selectedVehicle && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60
+        }}>
+          <div className="glass-panel" style={{ width: 550, position: 'relative' }}>
+            <button 
+              onClick={() => setSelectedVehicle(null)}
+              style={{ position: 'absolute', right: 16, top: 16, background: 'transparent', color: '#94A3B8' }}
             >
-              <option value="ALL">All Verdicts ({vehicles.length})</option>
-              <option value="READY_NOW">Ready Now ({summary.ready_now})</option>
-              <option value="CHARGER">Ready w/ Charger ({summary.ready_with_charger})</option>
-              <option value="NOT_YET">Not Yet ({summary.not_yet})</option>
-            </select>
+              <X size={20} />
+            </button>
+
+            <h3 style={{ fontSize: 16, marginBottom: 8, color: '#38BDF8' }}>
+              Feasibility Drilldown: {selectedVehicle.vehicle_id} ({selectedVehicle.route_name})
+            </h3>
+            <p style={{ fontSize: 13, color: '#94A3B8', marginBottom: 16 }}>
+              Score: <strong style={{ color: '#10B981', fontSize: 18 }}>{selectedVehicle.score} / 100</strong> ({selectedVehicle.verdict})
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 6 }}>
+                <span>Route Feasibility Factor (40%):</span>
+                <strong>{selectedVehicle.breakdown?.route_feasibility} / 100</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 6 }}>
+                <span>Daily Distance Suitability (30%):</span>
+                <strong>{selectedVehicle.breakdown?.distance_suitability} / 100</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 6 }}>
+                <span>Charging Feasibility Factor (20%):</span>
+                <strong>{selectedVehicle.breakdown?.charging_feasibility} / 100</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 6 }}>
+                <span>Operational Suitability Factor (10%):</span>
+                <strong>{selectedVehicle.breakdown?.operational_suitability} / 100</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(37, 99, 235, 0.1)', borderRadius: 6, color: '#93C5FD' }}>
+                <span>Required Recharge Duration:</span>
+                <strong>{selectedVehicle.charging_needs?.charge_hours_required} hrs ({selectedVehicle.charging_needs?.kwh_required} kWh)</strong>
+              </div>
+            </div>
+
+            <p style={{ marginTop: 16, fontSize: 12, color: '#CBD5E1', fontStyle: 'italic' }}>
+              Explanation: {selectedVehicle.explanation}
+            </p>
           </div>
         </div>
-
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Vehicle ID</th>
-                <th>Route Name</th>
-                <th>Daily Distance</th>
-                <th>Dwell Window</th>
-                <th>Payload %</th>
-                <th>Stops</th>
-                <th>Feasibility Score</th>
-                <th>Rollout Verdict</th>
-                <th>Factor Inspection (R | D | Q | S)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredVehicles.map((v) => (
-                <tr key={v.vehicle_id}>
-                  <td style={{ fontWeight: 700 }}>{v.vehicle_id}</td>
-                  <td>{v.route_name}</td>
-                  <td>{v.distance_km} km</td>
-                  <td>{v.dwell_start} → {v.dwell_end} ({v.metrics.dwell_hours}h)</td>
-                  <td>{v.avg_payload_pct}%</td>
-                  <td>{v.stop_count}</td>
-                  <td>
-                    <span style={{ 
-                      fontWeight: 800, 
-                      color: v.score >= 75 ? '#10B981' : v.score >= 50 ? '#F59E0B' : '#EF4444' 
-                    }}>
-                      {v.score} / 100
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`badge-tag ${
-                      v.verdict === 'Ready now' ? 'badge-green' : 
-                      v.verdict === 'Ready with depot charger' ? 'badge-amber' : 'badge-red'
-                    }`}>
-                      {v.verdict}
-                    </span>
-                  </td>
-                  <td style={{ fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace' }}>
-                    R:{v.metrics.R_range_fit} | D:{v.metrics.D_dwell_fit} | Q:{v.metrics.Q_payload_fit} | S:{v.metrics.S_tariff_fit}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* Footer / Academic Accreditation */}
-      <footer style={{ marginTop: 40, textAlign: 'center', color: '#6B7280', fontSize: 12, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 20 }}>
-        <p>VidyutFleet · GNDEC Ludhiana · HACKNAUTS 2.0 / Smart India Hackathon 2026</p>
-        <p style={{ marginTop: 4 }}>
-          Algorithmic Framework: WEVJ 2024 Depot Optimization | TCO Benchmarking: CEEW 2024 | Grid Emissions: CEA CO₂ Baseline v16
-        </p>
-      </footer>
+      )}
     </div>
   );
 }

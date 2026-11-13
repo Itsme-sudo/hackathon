@@ -1,0 +1,11 @@
+ev_model_id,ev_make,ev_model,vehicle_type,battery_capacity_kwh,arai_range_km,practical_range_km,energy_consumption_kwh_per_km,payload_capacity_kg,charging_power_kw_ac,charging_power_kw_dc,charger_type,price_inr,warranty_years
+EV001,Mahindra,Treo Zor,3W,7.5,125,95,0.08,550,3.3,0,AC Type 2,350000,3
+EV002,Piaggio,Ape E-Xtra,3W,8.9,120,90,0.09,560,3.3,0,AC Type 2,380000,3
+EV003,Tata,Tata Ace EV,LCV,21.3,152,110,0.16,750,7.4,0,AC Type 2,900000,3
+EV004,Tata,Magic EV,4W,15.5,150,110,0.14,700,7.4,0,AC Type 2,700000,3
+EV005,Euler,HiLoad,LCV,21.0,120,90,0.18,688,15.0,0,AC Type 2,350000,3
+EV006,Altigreen,neEV Cargo,3W,11.0,151,115,0.10,550,3.3,0,AC Type 2,410000,3
+EV007,Omega Seiki,Rage+ Rapid,3W,10.8,120,95,0.09,500,3.3,0,AC Type 2,360000,3
+EV008,Mahindra,Zor Grand,3W,10.24,153,115,0.09,500,3.3,0,AC Type 2,390000,3
+EV009,Tata,Ultra T.7 EV,MCV,62.5,180,130,0.35,3600,0,30.0,CCS2 DC Fast,2400000,5
+EV010,Switch Mobility,IeV4,LCV,32.2,120,95,0.22,1700,0,30.0,CCS2 DC Fast,1450000,4

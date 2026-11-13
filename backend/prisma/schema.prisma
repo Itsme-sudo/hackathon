@@ -1,0 +1,287 @@
+// Prisma Schema for VidyutFleet - Fleet EV Transition & Depot Infrastructure Planner
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  FLEET_MANAGER
+  DEPOT_MANAGER
+  FINANCE_ANALYST
+  SUSTAINABILITY_OFFICER
+  ADMIN
+}
+
+enum FuelType {
+  DIESEL
+  PETROL
+  CNG
+  ELECTRIC
+}
+
+enum RolloutVerdict {
+  READY_NOW
+  READY_WITH_DEPOT_CHARGER
+  NOT_YET
+}
+
+enum SessionStatus {
+  SCHEDULED
+  CHARGING
+  COMPLETED
+  CONFLICT
+}
+
+model Organization {
+  id          String       @id @default(uuid())
+  name        String
+  code        String       @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  users       User[]
+  depots      Depot[]
+  fleets      Fleet[]
+  uploads     CsvUpload[]
+  analyses    AnalysisJob[]
+}
+
+model User {
+  id             String       @id @default(uuid())
+  email          String       @unique
+  passwordHash   String
+  fullName       String
+  role           Role         @default(FLEET_MANAGER)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  auditLogs      AuditLog[]
+}
+
+model Depot {
+  id                    String            @id @default(uuid())
+  organizationId        String
+  organization          Organization      @relation(fields: [organizationId], references: [id])
+  code                  String
+  name                  String
+  city                  String
+  state                 String
+  gridCapacityKw        Float
+  availableChargers     Int               @default(0)
+  chargers              Charger[]
+  vehicles              Vehicle[]
+  routes                Route[]
+  chargingSchedules     ChargingSchedule[]
+}
+
+model Charger {
+  id               String            @id @default(uuid())
+  depotId          String
+  depot            Depot             @relation(fields: [depotId], references: [id])
+  bayIdentifier    String
+  chargerType      String            // AC Type 2, CCS2 DC Fast
+  powerKw          Float             // 3.3, 7.4, 15, 30, 60
+  isOperational    Boolean           @default(true)
+  sessions         ChargingSession[]
+}
+
+model Fleet {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  vehicles       Vehicle[]
+}
+
+model Vehicle {
+  id                    String              @id @default(uuid())
+  fleetId               String
+  fleet                 Fleet               @relation(fields: [fleetId], references: [id])
+  depotId               String
+  depot                 Depot               @relation(fields: [depotId], references: [id])
+  vehicleCode           String
+  name                  String
+  vehicleType           String              // 3W Cargo, LCV, 4W Van
+  fuelType              FuelType
+  purchasePrice         Float
+  annualMaintenanceCost Float
+  fuelEfficiency        Float
+  batteryCapacityKwh    Float?
+  evRangeKm             Float?
+  routes                Route[]
+  readinessResults      EvReadinessResult[]
+  chargingSessions      ChargingSession[]
+}
+
+model Route {
+  id                   String              @id @default(uuid())
+  depotId              String
+  depot                Depot               @relation(fields: [depotId], references: [id])
+  vehicleId            String
+  vehicle              Vehicle             @relation(fields: [vehicleId], references: [id])
+  routeCode            String
+  routeName            String
+  origin               String
+  destination          String
+  dailyDistanceKm      Float
+  numberOfTrips        Int                 @default(1)
+  departureTime        String              // "08:30"
+  arrivalTime          String              // "17:30"
+  depotDwellStart      String              // "18:30"
+  depotDwellEnd        String              // "07:30"
+  payloadKg            Float
+  maxPayloadKg         Float
+  roadType             String              // Urban, Highway, Semi-Urban
+  trafficLevel         String              // Low, Medium, High
+  weatherCondition     String              // Clear, Rain, Extreme Heat
+  monthlyOperatingDays Int                 @default(26)
+  readinessResults     EvReadinessResult[]
+}
+
+model CsvUpload {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  filename       String
+  storagePath    String
+  rowCount       Int
+  status         String       // PENDING, VALIDATED, FAILED, ANALYZED
+  validationLog  Json?
+  createdAt      DateTime     @default(now())
+  analyses       AnalysisJob[]
+}
+
+model AnalysisJob {
+  id               String              @id @default(uuid())
+  organizationId   String
+  organization     Organization        @relation(fields: [organizationId], references: [id])
+  uploadId         String
+  upload           CsvUpload           @relation(fields: [uploadId], references: [id])
+  status           String              // RUNNING, COMPLETED, FAILED
+  parameters       Json                // Subsidy toggle, tariff rates, fuel prices
+  readinessResults EvReadinessResult[]
+  chargerPlans     ChargerPlan[]
+  financialResults FinancialResult[]
+  co2Results       Co2Result[]
+  createdAt        DateTime            @default(now())
+}
+
+model EvReadinessResult {
+  id                       String         @id @default(uuid())
+  analysisJobId            String
+  analysisJob              AnalysisJob    @relation(fields: [analysisJobId], references: [id])
+  vehicleId                String
+  vehicle                  Vehicle        @relation(fields: [vehicleId], references: [id])
+  routeId                  String
+  route                    Route          @relation(fields: [routeId], references: [id])
+  score                    Float          // 0 to 100
+  verdict                  RolloutVerdict
+  routeFeasibilityScore    Float          // 40%
+  distanceSuitabilityScore Float          // 30%
+  chargingFeasibilityScore Float          // 20%
+  operationalSuitability   Float          // 10%
+  kwhRequired              Float
+  chargeHoursRequired      Float
+  dwellHoursAvailable      Float
+  explanation              String
+}
+
+model ChargerPlan {
+  id                  String             @id @default(uuid())
+  analysisJobId       String
+  analysisJob         AnalysisJob        @relation(fields: [analysisJobId], references: [id])
+  depotId             String
+  minChargersRequired Int
+  recommendedChargers Int
+  peakPowerDemandKw   Float
+  totalNightlyKwh     Float
+  chargerUtilization  Float
+  schedules           ChargingSchedule[]
+}
+
+model ChargingSchedule {
+  id              String            @id @default(uuid())
+  chargerPlanId   String
+  chargerPlan     ChargerPlan       @relation(fields: [chargerPlanId], references: [id])
+  depotId         String
+  depot           Depot             @relation(fields: [depotId], references: [id])
+  conflictCount   Int               @default(0)
+  sessions        ChargingSession[]
+}
+
+model ChargingSession {
+  id             String           @id @default(uuid())
+  scheduleId     String
+  schedule       ChargingSchedule @relation(fields: [scheduleId], references: [id])
+  chargerId      String
+  charger        Charger          @relation(fields: [chargerId], references: [id])
+  vehicleId      String
+  vehicle        Vehicle          @relation(fields: [vehicleId], references: [id])
+  startTime      String           // "20:00"
+  endTime        String           // "02:30"
+  departureTime  String           // "05:00"
+  energyKwh      Float
+  durationHours  Float
+  slackMins      Int
+  status         SessionStatus    @default(SCHEDULED)
+}
+
+model FinancialResult {
+  id                     String      @id @default(uuid())
+  analysisJobId          String
+  analysisJob            AnalysisJob @relation(fields: [analysisJobId], references: [id])
+  subsidyActive          Boolean
+  annualEvSpend          Float
+  annualDieselSpend      Float
+  annualNetSavings       Float
+  totalCapexDelta       Float
+  paybackYears           Float
+  roiPercent             Float
+  fiveYearTcoSavings     Float
+  tenYearTcoSavings      Float
+}
+
+model Co2Result {
+  id                     String      @id @default(uuid())
+  analysisJobId          String
+  analysisJob            AnalysisJob @relation(fields: [analysisJobId], references: [id])
+  annualDieselEmissionsT Float
+  annualEvEmissionsT     Float
+  netAbatedEmissionsT    Float
+  reductionPercentage    Float
+}
+
+model Document {
+  id             String   @id @default(uuid())
+  title          String
+  category       String   // EV_SPEC, POLICY, TARIFF, RESEARCH
+  content        String
+  metadata       Json
+  embeddingId    String?
+  createdAt      DateTime @default(now())
+}
+
+model ChatMessage {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  role           String   // user, assistant
+  content        String
+  citations      Json?
+  createdAt      DateTime @default(now())
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  action         String
+  entityType     String
+  entityId       String
+  metadata       Json?
+  createdAt      DateTime @default(now())
+}

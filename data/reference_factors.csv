@@ -1,0 +1,15 @@
+parameter_id,parameter_name,parameter_value,unit,source,applicable_from,notes
+REF001,electricity_tariff,7.5,INR/kWh,User input,2026-11-13,Commercial electricity tariff
+REF002,diesel_price,94.5,INR/litre,User input,2026-11-13,Current diesel price
+REF003,petrol_price,105.0,INR/litre,User input,2026-11-13,Current petrol price
+REF004,cng_price,85.0,INR/kg,User input,2026-11-13,Current CNG price
+REF005,grid_co2_factor,0.675,kg CO2/kWh,CEA,2026-04-01,FY 2025-26 weighted average grid factor
+REF006,diesel_co2_factor,2.68,kg CO2/litre,Reference,2026-11-13,Approximate diesel emission factor
+REF007,petrol_co2_factor,2.31,kg CO2/litre,Reference,2026-11-13,Approximate petrol emission factor
+REF008,cng_co2_factor,2.75,kg CO2/kg,Reference,2026-11-13,Approximate CNG emission factor
+REF009,ev_charging_efficiency,0.90,decimal,System assumption,2026-11-13,Charging and battery losses
+REF010,charger_installation_cost,150000,INR/charger,User input,2026-11-13,Per charger installation estimate
+REF011,battery_replacement_reserve,10.0,percent,User input,2026-11-13,Reserve for future battery replacement
+REF012,pm_edrive_subsidy,50000,INR/vehicle,Ministry of Heavy Industries,2026-10-01,PM E-DRIVE Capital Subsidy for L5M Cargo
+REF013,diesel_operating_cost_per_km,2.69,INR/km,CEEW 2024,2024-06-01,Total operational cost per km for diesel commercial LCV
+REF014,ev_operating_cost_per_km,1.28,INR/km,CEEW 2024,2024-06-01,Total operational cost per km for electric commercial LCV
